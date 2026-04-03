@@ -1,0 +1,34 @@
+services:
+  ipex-llm:
+    image: ${OLLAMA_IPEX_IMAGE}
+    container_name: ${OLLAMA_IPEX_CONTAINER_NAME}
+    restart: ${OLLAMA_IPEX_RESTART}
+    network_mode: host
+    devices:
+      - ${OLLAMA_IPEX_DRI_RENDER}:${OLLAMA_IPEX_DRI_RENDER}
+      - ${OLLAMA_IPEX_DRI_CARD}:${OLLAMA_IPEX_DRI_CARD}
+    volumes:
+      - ${OLLAMA_IPEX_MODELS_DIR}:/llm/ollama/models
+    environment:
+      - ONEAPI_DEVICE_SELECTOR=${OLLAMA_IPEX_ENV_ONEAPI_DEVICE_SELECTOR}
+      - ZES_ENABLE_SYSMAN=${OLLAMA_IPEX_ENV_ZES_ENABLE_SYSMAN}
+      - SYCL_CACHE_PERSISTENT=${OLLAMA_IPEX_ENV_SYCL_CACHE_PERSISTENT}
+      - SYCL_PI_LEVEL_ZERO_USE_IMMEDIATE_COMMANDLISTS=${OLLAMA_IPEX_ENV_SYCL_PI_LEVEL_ZERO_USE_IMMEDIATE_COMMANDLISTS}
+      - OLLAMA_HOST=0.0.0.0:11434
+      - OLLAMA_MODELS=/llm/ollama/models
+      - OLLAMA_NUM_GPU=${OLLAMA_IPEX_NUM_GPU}
+      - OLLAMA_NUM_PARALLEL=${OLLAMA_IPEX_NUM_PARALLEL}
+      - OLLAMA_MAX_LOADED_MODELS=${OLLAMA_IPEX_MAX_LOADED_MODELS}
+      - OLLAMA_KEEP_ALIVE=${OLLAMA_IPEX_KEEP_ALIVE}
+      - OLLAMA_FLASH_ATTENTION=${OLLAMA_IPEX_FLASH_ATTENTION}
+      - OMP_NUM_THREADS=${OLLAMA_IPEX_OMP_THREADS}
+      - no_proxy=${OLLAMA_IPEX_ENV_no_proxy}
+    mem_limit: ${OLLAMA_IPEX_MEM_LIMIT}
+    shm_size: ${OLLAMA_IPEX_SHM_SIZE}
+    command: ["sh", "-c", "/llm/scripts/start-ollama.sh && tail -f /llm/ollama/ollama.log"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:11434/api/tags || exit 1"]
+      interval: ${OLLAMA_IPEX_HEALTH_INTERVAL}
+      timeout: ${OLLAMA_IPEX_HEALTH_TIMEOUT}
+      retries: ${OLLAMA_IPEX_HEALTH_RETRIES}
+      start_period: ${OLLAMA_IPEX_HEALTH_START_PERIOD}

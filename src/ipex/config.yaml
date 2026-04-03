@@ -1,0 +1,50 @@
+docker:
+  compose_filename: docker-compose.yml
+  service_name: ipex-llm
+  container_name: ipex-llm
+  image: intelanalytics/ipex-llm-inference-cpp-xpu:latest
+  restart: unless-stopped
+  mem_limit: 24g
+  shm_size: 8g
+  healthcheck:
+    interval: 30s
+    timeout: 10s
+    retries: 3
+    start_period: 60s
+
+runtime:
+  host: 127.0.0.1
+  port: 11434
+  default_model: phi4-mini:latest
+  keep_alive: 10m
+  num_parallel: 1
+  max_loaded_models: 1
+  num_gpu: 999
+  flash_attention: true
+  omp_threads: 6
+  startup_timeout_seconds: 90
+  switch_timeout_seconds: 30
+  probe_interval_seconds: 1
+
+paths:
+  models_dir: $HOME/.ollama-ipex/models
+
+devices:
+  dri_render: /dev/dri/renderD128
+  dri_card: /dev/dri/card1
+
+native:
+  service_name: ollama
+
+preload:
+  default_timeout_seconds: 30
+  large_timeout_seconds: 120
+  large_model_prefixes:
+    - qwen2.5
+
+environment:
+  ONEAPI_DEVICE_SELECTOR: level_zero:0
+  ZES_ENABLE_SYSMAN: "1"
+  SYCL_CACHE_PERSISTENT: "1"
+  SYCL_PI_LEVEL_ZERO_USE_IMMEDIATE_COMMANDLISTS: "1"
+  no_proxy: localhost,127.0.0.1
