@@ -12,6 +12,7 @@ Control plane for the IPEX-backed Ollama runtime.
 
 ## Source Of Truth
 
+- `AGENTS.md`: project-level agent contract
 - `src/ipex/config.yaml`: runtime defaults
 - `docker-compose.yml`: generic container template fed by the CLI config
 - `src/ipex/cli.py`: Typer/Rich control plane

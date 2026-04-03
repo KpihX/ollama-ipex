@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.3 - 2026-04-04
+
+- Add a root `AGENTS.md` so project-local agent guidance lives in the repository instead of only in `./.agents/`.
+- Point the README source-of-truth list at the new project-level agent contract.
+
 ## 0.2.2 - 2026-04-04
 
 - Resolve short model names like `qwen2.5` to the live backend tags before preload/unload.
