@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.2 - 2026-04-04
+
+- Resolve short model names like `qwen2.5` to the live backend tags before preload/unload.
+- Replace raw curl tracebacks with readable Ollama-side failures.
+- Add `preload --default`, `unload --all`, and `doctor`.
+
 ## 0.2.1 - 2026-04-04
 
 - Fold the old `info` output into `status` so one command exposes the full runtime view.

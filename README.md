@@ -34,7 +34,10 @@ ollama-ipex start
 ollama list
 ollama ps
 ollama run phi4-mini:latest
+ollama-ipex preload --default
 ollama-ipex preload qwen2.5:latest
+ollama-ipex unload --all
+ollama-ipex doctor
 ollama-ipex logs --lines 200
 ollama-ipex native
 ollama-ipex down

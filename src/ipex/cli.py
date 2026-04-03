@@ -126,14 +126,16 @@ def _request_systemctl(action: str) -> subprocess.CompletedProcess[str]:
     return _sudo_systemctl(action)
 
 
-def _curl_json(path: str, payload: dict[str, Any] | None = None, timeout_seconds: int = 15) -> dict[str, Any]:
+def _curl_request(path: str, payload: dict[str, Any] | None = None, timeout_seconds: int = 15) -> tuple[int, dict[str, Any], str]:
     command = [
         "curl",
-        "-fsS",
+        "-sS",
         "--connect-timeout",
         "2",
         "--max-time",
         str(timeout_seconds),
+        "-w",
+        "\n%{http_code}",
     ]
     if payload is not None:
         command.extend(
@@ -147,15 +149,38 @@ def _curl_json(path: str, payload: dict[str, Any] | None = None, timeout_seconds
             ]
         )
     command.append(f"{_base_url()}{path}")
-    result = _run(command)
-    return json.loads(result.stdout or "{}")
+    result = _run(command, check=False)
+    stdout = (result.stdout or "").strip()
+    body, _, status_text = stdout.rpartition("\n")
+    response_body = body if status_text.isdigit() else stdout
+    status_code = int(status_text) if status_text.isdigit() else (200 if result.returncode == 0 else 0)
+    data: dict[str, Any] = {}
+    if response_body:
+        try:
+            data = json.loads(response_body)
+        except json.JSONDecodeError:
+            data = {}
+    return status_code, data, (result.stderr or "").strip() or response_body
+
+
+def _curl_json(path: str, payload: dict[str, Any] | None = None, timeout_seconds: int = 15) -> dict[str, Any]:
+    status_code, data, detail = _curl_request(path, payload=payload, timeout_seconds=timeout_seconds)
+    if status_code == 0 or status_code >= 400:
+        message = (
+            data.get("error")
+            or data.get("message")
+            or detail
+            or f"Request to {_base_url()}{path} failed with HTTP {status_code or 'unknown'}."
+        )
+        _fail(str(message))
+    return data
 
 
 def _safe_curl_json(path: str, timeout_seconds: int = 5) -> dict[str, Any] | None:
-    try:
-        return _curl_json(path, timeout_seconds=timeout_seconds)
-    except subprocess.CalledProcessError:
+    status_code, data, _detail = _curl_request(path, timeout_seconds=timeout_seconds)
+    if status_code == 0 or status_code >= 400:
         return None
+    return data
 
 
 def _probe_interval_seconds() -> float:
@@ -286,6 +311,37 @@ def _timeout_for_model(model: str, timeout_seconds: int | None) -> int:
         if model.startswith(prefix):
             return int(preload["large_timeout_seconds"])
     return int(preload["default_timeout_seconds"])
+
+
+def _available_model_names() -> list[str]:
+    payload = _safe_curl_json("/api/tags", timeout_seconds=5) or {}
+    return [item.get("name", "") for item in payload.get("models", []) if item.get("name")]
+
+
+def _loaded_model_names() -> list[str]:
+    payload = _safe_curl_json("/api/ps", timeout_seconds=5) or {}
+    return [item.get("name", "") for item in payload.get("models", []) if item.get("name")]
+
+
+def _resolve_model_name(model: str | None) -> str:
+    model_name = model or _config()["runtime"]["default_model"]
+    available = _available_model_names()
+    if not available:
+        return model_name
+    if model_name in available:
+        return model_name
+    if ":" not in model_name:
+        latest = f"{model_name}:latest"
+        if latest in available:
+            return latest
+    for candidate in available:
+        if candidate.split(":", 1)[0] == model_name:
+            return candidate
+    _fail(
+        f"Model `{model_name}` is not available on the current backend.\n"
+        f"Available models: {', '.join(available) or 'none'}"
+    )
+    return model_name
 
 
 def _status_rows() -> list[tuple[str, str]]:
@@ -424,9 +480,29 @@ def status() -> None:
 
 
 @app.command()
-def unload(model: str = typer.Argument(None, help="Model to evict from memory.")) -> None:
+def unload(
+    model: str = typer.Argument(None, help="Model to evict from memory."),
+    unload_all: bool = typer.Option(False, "--all", help="Evict every currently loaded model."),
+) -> None:
     """Request immediate model eviction from Ollama."""
-    model_name = model or _config()["runtime"]["default_model"]
+    if unload_all:
+        loaded = _loaded_model_names()
+        if not loaded:
+            console.print("[yellow]No loaded models to unload.[/yellow]")
+            return
+        for model_name in loaded:
+            _curl_json(
+                "/api/generate",
+                payload={
+                    "model": model_name,
+                    "prompt": "",
+                    "stream": False,
+                    "keep_alive": 0,
+                },
+            )
+            _ok(f"Unload requested for {model_name}")
+        return
+    model_name = _resolve_model_name(model)
     _curl_json(
         "/api/generate",
         payload={
@@ -436,16 +512,18 @@ def unload(model: str = typer.Argument(None, help="Model to evict from memory.")
             "keep_alive": 0,
         },
     )
-    console.print(f"[green]Unload requested[/green] for {model_name}")
+    console.print(f"[green]{model_name} unload requested[/green]")
 
 
 @app.command()
 def preload(
     model: str = typer.Argument(None, help="Model to warm into memory."),
+    use_default: bool = typer.Option(False, "--default", help="Warm the configured default model."),
     timeout_seconds: int | None = typer.Option(None, "--timeout", help="Override the preload timeout in seconds."),
 ) -> None:
     """Warm a model with a 1-token request."""
-    model_name = model or _config()["runtime"]["default_model"]
+    requested_model = None if use_default else model
+    model_name = _resolve_model_name(requested_model)
     resolved_timeout = _timeout_for_model(model_name, timeout_seconds)
     started_at = time.perf_counter()
     result = _curl_json(
@@ -471,6 +549,40 @@ def logs(lines: int = typer.Option(120, "--lines", min=1, help="Number of recent
         message = result.stderr.strip() or result.stdout.strip() or "Unable to read container logs."
         _fail(message)
     console.print(Syntax(result.stdout.strip() or "<no logs>", "text", theme="ansi_dark"))
+
+
+@app.command()
+def doctor() -> None:
+    """Run a compact runtime health check."""
+    table = Table(title="IPEX Ollama Doctor")
+    table.add_column("Check")
+    table.add_column("State")
+    table.add_column("Details")
+
+    config = _config()
+    table.add_row("config", "ok", str(CONFIG_PATH))
+    table.add_row("docker_cli", "ok" if shutil.which("docker") else "missing", shutil.which("docker") or "not found")
+    table.add_row("ollama_cli", "ok" if shutil.which("ollama") else "missing", shutil.which("ollama") or "not found")
+
+    render_ok = Path(config["devices"]["dri_render"]).exists()
+    card_ok = Path(config["devices"]["dri_card"]).exists()
+    table.add_row("gpu_render", "ok" if render_ok else "missing", config["devices"]["dri_render"])
+    table.add_row("gpu_card", "ok" if card_ok else "missing", config["devices"]["dri_card"])
+
+    native = _systemctl("is-active", check=False)
+    table.add_row("native_service", native.stdout.strip() or "unknown", _native_service_name())
+
+    compose = _docker_compose("ps", "--format", "json", check=False)
+    docker_state = "down"
+    if compose.stdout.strip():
+        docker_state = "running"
+    table.add_row("ipex_container", docker_state, _container_name())
+
+    probe = _safe_curl_json("/api/tags", timeout_seconds=5)
+    table.add_row("host_api", "ok" if probe is not None else "failed", _base_url())
+    table.add_row("models_visible", str(len(_available_model_names())), ", ".join(_available_model_names()) or "none")
+    table.add_row("loaded_models", str(len(_loaded_model_names())), ", ".join(_loaded_model_names()) or "none")
+    console.print(table)
 
 
 @config_app.command("show")
