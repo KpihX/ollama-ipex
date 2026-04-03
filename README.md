@@ -53,10 +53,13 @@ After `ollama-ipex native`, use the same plain `ollama ...` commands.
 
 ```bash
 ollama-ipex config show
+ollama-ipex config edit
 ollama-ipex config set docker.mem_limit 20g
 ollama-ipex config set docker.shm_size 6g
 ollama-ipex config set runtime.default_model qwen2.5:latest
 ```
+
+`config edit` opens the live YAML file with `VISUAL`, then `EDITOR`, then `sensible-editor`, then `nano`, then `vi`.
 
 ## Build
 

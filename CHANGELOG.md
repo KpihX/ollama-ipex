@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.1 - 2026-04-04
+
+- Fold the old `info` output into `status` so one command exposes the full runtime view.
+- Add `config edit` to open the live YAML config in the default editor.
+
 ## 0.2.0 - 2026-04-04
 
 - Move the IPEX backend onto the same public endpoint as native Ollama: `127.0.0.1:11434`.

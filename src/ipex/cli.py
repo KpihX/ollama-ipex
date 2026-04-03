@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -61,6 +62,13 @@ def _base_url() -> str:
 
 def _models_dir() -> str:
     return _config()["paths"]["models_dir"]
+
+
+def _config_editor() -> str:
+    for candidate in (os.environ.get("VISUAL"), os.environ.get("EDITOR"), "sensible-editor", "nano"):
+        if candidate and shutil.which(candidate):
+            return candidate
+    return "vi"
 
 
 def _compose_env() -> dict[str, str]:
@@ -309,8 +317,15 @@ def _status_rows() -> list[tuple[str, str]]:
         rows.append(("loaded_models", loaded))
 
     rows.append(("host", _base_url()))
+    rows.append(("project_root", str(PROJECT_ROOT)))
+    rows.append(("compose", str(_compose_path())))
     rows.append(("models_dir", config["paths"]["models_dir"]))
     rows.append(("default_model", config["runtime"]["default_model"]))
+    rows.append(("keep_alive", str(config["runtime"]["keep_alive"])))
+    rows.append(("num_parallel", str(config["runtime"]["num_parallel"])))
+    rows.append(("max_loaded_models", str(config["runtime"]["max_loaded_models"])))
+    rows.append(("startup_timeout_seconds", str(config["runtime"]["startup_timeout_seconds"])))
+    rows.append(("switch_timeout_seconds", str(config["runtime"]["switch_timeout_seconds"])))
     rows.append(("mem_limit", str(config["docker"]["mem_limit"])))
     rows.append(("shm_size", str(config["docker"]["shm_size"])))
     return rows
@@ -458,34 +473,24 @@ def logs(lines: int = typer.Option(120, "--lines", min=1, help="Number of recent
     console.print(Syntax(result.stdout.strip() or "<no logs>", "text", theme="ansi_dark"))
 
 
-@app.command()
-def info() -> None:
-    """Show the effective project layout and runtime defaults."""
-    config = _config()
-    panel = Panel.fit(
-        "\n".join(
-            [
-                f"project_root: {PROJECT_ROOT}",
-                f"compose: {_compose_path()}",
-                f"host: {_base_url()}",
-                f"models_dir: {_models_dir()}",
-                f"default_model: {config['runtime']['default_model']}",
-                f"mem_limit: {config['docker']['mem_limit']}",
-                f"shm_size: {config['docker']['shm_size']}",
-                f"default_preload_timeout_seconds: {config['preload']['default_timeout_seconds']}",
-                f"large_model_preload_timeout_seconds: {config['preload']['large_timeout_seconds']}",
-            ]
-        ),
-        title="IPEX Configuration",
-    )
-    console.print(panel)
-
-
 @config_app.command("show")
 def config_show() -> None:
     """Print the current config file."""
     with CONFIG_PATH.open("r", encoding="utf-8") as handle:
         console.print(Syntax(handle.read(), "yaml", theme="ansi_dark"))
+
+
+@config_app.command("edit")
+def config_edit() -> None:
+    """Open the live YAML config in the default editor."""
+    editor = _config_editor()
+    console.print(f"[cyan]•[/cyan] Opening {CONFIG_PATH} with `{editor}`")
+    result = subprocess.run([editor, str(CONFIG_PATH)], check=False)
+    if result.returncode != 0:
+        _fail(f"Editor `{editor}` exited with status {result.returncode}.")
+    load_raw_config.cache_clear()
+    load_config.cache_clear()
+    console.print(f"[green]✓[/green] Saved {CONFIG_PATH}")
 
 
 @config_app.command("set")
